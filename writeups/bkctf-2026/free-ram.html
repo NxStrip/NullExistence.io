@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Free RAM | BKCTF 2026</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../../styles.css">
+</head>
+<body>
+
+<header>
+    <div class="container nav">
+        <a href="../../" class="logo">NULL<span>EXISTENCE</span></a>
+    </div>
+</header>
+
+<section class="section">
+<div class="container">
+
+<h2 class="ctf-title">Free RAM – Reverse Engineering Challenge</h2>
+
+<p><strong>Author:</strong> Arveen (Neevra_Llig)</p>
+<p><strong>Category:</strong> Reverse Engineering</p>
+
+<hr>
+
+<h3>Abstract</h3>
+<p>
+This writeup explains the complete reverse engineering process used to recover the hidden
+flag from the “Free RAM” challenge. Static analysis was conducted on a stripped 64-bit ELF
+binary to understand its decryption routine. A known-plaintext attack was then performed
+to recover the encryption key, which was subsequently used to decrypt the corrupted
+reverse engineering challenge and extract the flag.
+</p>
+
+<hr>
+
+<h3>1. Initial File Analysis</h3>
+
+<p>
+After extracting <code>free_ram.zip</code>, the directory structure revealed the decryptor
+binary and a directory containing encrypted files, including a corrupted reverse
+engineering challenge named <code>supertough</code>.
+</p>
+
+<p>
+Running <code>file</code> and <code>strings</code> on the binary revealed:
+</p>
+
+<ul>
+<li>64-bit ELF PIE executable (x86-64)</li>
+<li>Stripped binary</li>
+<li>"Enter decryption key:"</li>
+<li>"Enter directory to decrypt:"</li>
+<li>"Thanks for the free RAM!"</li>
+</ul>
+
+<p>
+Imported functions (fgets, strlen, read, write, open, close, nftw, mkdir, stat)
+indicated recursive directory traversal and file processing behavior, consistent
+with ransomware-style functionality.
+</p>
+
+<hr>
+
+<h3>2. Static Analysis of free_ram</h3>
+
+<h4>Magic Byte Check</h4>
+
+<p>
+Within the file-processing routine, a comparison checks whether the first byte of
+each file equals <code>0x67</code>. If not, the file is skipped.
+</p>
+
+<p>
+This byte acts as a magic marker identifying encrypted files and is discarded before
+decryption begins.
+</p>
+
+<h4>Decryption Algorithm</h4>
+
+<p>
+The core routine performs a rotate-right operation per byte followed by XOR with
+a repeating key.
+</p>
+
+<p><strong>Decryption formula:</strong></p>
+
+<pre><code>
+plaintext[i] = rotr(enc[i], i mod 8) XOR key[i mod keylen]
+</code></pre>
+
+<p><strong>Inverse encryption:</strong></p>
+
+<pre><code>
+enc[i] = rotl(plaintext[i] XOR key[i mod keylen], i mod 8)
+</code></pre>
+
+<hr>
+
+<h3>3. Known-Plaintext Attack</h3>
+
+<p>
+The file <code>quick_brown_fox.txt</code> strongly suggested the known pangram:
+</p>
+
+<pre><code>
+"the quick brown fox jumps over the lazy dog"
+</code></pre>
+
+<p>
+Using this known plaintext, the key was recovered byte-by-byte:
+</p>
+
+<pre><code>
+key[i] = rotr(enc[i], i mod 8) XOR plaintext[i]
+</code></pre>
+
+<p>
+The recovered repeating key was:
+</p>
+
+<pre><code>
+iamnoproisaywhatimean
+</code></pre>
+
+<hr>
+
+<h3>4. Decrypting supertough</h3>
+
+<p>
+Applying the recovered key to the encrypted <code>supertough</code> binary
+(skipping the 0x67 magic byte) produced valid ELF header bytes:
+</p>
+
+<pre><code>
+7f 45 4c 46
+</code></pre>
+
+<p>
+This confirmed successful decryption and recovery of the original reverse
+engineering challenge binary.
+</p>
+
+<hr>
+
+<h3>5. Decryption Script</h3>
+
+<pre><code>
+def rotr(byte, shift):
+    shift = shift % 8
+    return ((byte >> shift) | (byte << (8 - shift))) & 0xFF
+
+key = b'iamnoproisaywhatimean'
+
+enc = open('supertough', 'rb').read()[1:]
+
+dec = bytes([
+    rotr(enc[i], i % 8) ^ key[i % len(key)]
+    for i in range(len(enc))
+])
+
+open('supertough_decrypted', 'wb').write(dec)
+</code></pre>
+
+<hr>
+
+<h3>6. Extracting the Flag</h3>
+
+<p>
+Running <code>strings</code> on the decrypted binary revealed the flag:
+</p>
+
+<pre><code>
+bkctf{r4mm1n6_u5_up_w17h_th35e_pr1c35}
+</code></pre>
+
+</div>
+</section>
+
+</body>
+</html>

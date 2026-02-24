@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digger Dug | BKCTF 2026</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../../styles.css">
+</head>
+<body>
+
+<header>
+    <div class="container nav">
+        <a href="../../" class="logo">NULL<span>EXISTENCE</span></a>
+    </div>
+</header>
+
+<section class="section">
+    <div class="container">
+
+        <h2 class="ctf-title">Digger Dug – Reverse Engineering</h2>
+
+        <p><strong>CTF:</strong> BKCTF 2026</p>
+        <p><strong>Author:</strong> Arveen (Neevra_Llig)</p>
+
+        <hr>
+
+        <!-- Abstract -->
+        <h3>Abstract</h3>
+        <p>
+            This writeup explains the complete reverse engineering process used to recover the hidden
+            flag from the "Digger Dug" challenge. Static analysis was conducted using dnSpy, with
+            particular focus on correcting search scope issues, inspecting UI logic, and reconstructing a
+            dynamically generated string using a custom alphabet and integer index array.
+        </p>
+
+        <hr>
+
+        <!-- Section 1 -->
+        <h3>1. Initial File Analysis</h3>
+
+        <p>
+            After extracting <code>digger_dug.zip</code>, the directory structure revealed a
+            <code>Managed</code> folder, confirming that the application was built using Unity with the
+            Mono backend. This is significant because Mono builds retain readable .NET assemblies.
+        </p>
+
+        <pre><code>
+Digger-Dug_Data/Managed/
+Assembly-CSharp.dll
+Assembly-CSharp-firstpass.dll
+UnityEngine DLL files
+        </code></pre>
+
+        <p>
+            Assembly-CSharp.dll was selected as the primary target for analysis since it typically
+            contains gameplay logic.
+        </p>
+
+        <hr>
+
+        <!-- Section 2 -->
+        <h3>2. Static Analysis Using dnSpy</h3>
+
+        <p>
+            I opened <code>Assembly-CSharp.dll</code> in dnSpy and examined the class tree.
+            The following gameplay classes were observed:
+            Enemy, GameManager, GameUI, LevelGenerator, PlayerController, and Pump.
+            No class named "Secrets" was immediately visible.
+        </p>
+
+        <p>
+            I then used dnSpy's Find in Files feature (Ctrl + Shift + F) and searched for
+            keywords such as <code>flag</code>, <code>CTF</code>, <code>secret</code>, and <code>SHA256</code>.
+        </p>
+
+        <p>
+            Initially, the search scope was set to "All Files". This produced only framework-level
+            results from assemblies such as System.Private.CoreLib and
+            System.Security.Cryptography, which were unrelated to the challenge.
+        </p>
+
+        <p>
+            After identifying this issue, I corrected the search scope to
+            <strong>Assembly-CSharp</strong> only. This removed framework noise and
+            restricted results to the game's actual code.
+        </p>
+
+        <pre><code>
+phqgiumeaylnofdxkrcvstzwb_{}ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789
+        </code></pre>
+
+        <p>
+            Further inspection revealed a conditional branch triggered when the level exceeded 9999.
+        </p>
+
+        <pre><code>
+if (level > 9999) {
+    foreach (int idx in Secrets.s) {
+        output += alphabet[idx];
+    }
+}
+
+public static class Secrets {
+    public static readonly int[] s = new int[] { ... };
+}
+        </code></pre>
+
+        <pre><code>
+alphabet =
+"phqgiumeaylnofdxkrcvstzwb_{}ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+s = [ ... ]
+
+flag = "".join(alphabet[i] for i in s)
+print(flag)
+        </code></pre>
+
+        <hr>
+
+        <!-- Section 3 -->
+        <h3>3. Discovery of Custom Alphabet Logic</h3>
+
+        <p>
+            While manually reviewing the GameUI class, specifically the method responsible
+            for updating the level display, I identified a suspicious hardcoded string that appeared
+            to be a custom character table.
+        </p>
+
+        <p>
+            This logic confirmed that the game constructs a hidden string using integer
+            indices stored in <code>Secrets.s</code>.
+        </p>
+
+        <hr>
+
+        <!-- Section 4 -->
+        <h3>4. Locating Secrets.s</h3>
+
+        <p>
+            The Secrets class was not found inside Assembly-CSharp.dll.
+            I then inspected Assembly-CSharp-firstpass.dll, where I located the
+            Secrets class containing a static integer array named <code>s</code>.
+        </p>
+
+        <p>
+            The integers in this array represent positions within the custom alphabet
+            string identified earlier.
+        </p>
+
+        <hr>
+
+        <!-- Section 5 -->
+        <h3>5. Reconstructing the Flag</h3>
+
+        <p>
+            Using the alphabet string and the integer array, I reconstructed the hidden
+            message by appending <code>alphabet[i]</code> for each integer <code>i</code> in <code>s</code>.
+        </p>
+
+        <pre><code>
+bkctf{B3h0ld_a_m37ApHoR1cAL_p1g3ON}
+        </code></pre>
+
+    </div>
+</section>
+
+</body>
+</html>

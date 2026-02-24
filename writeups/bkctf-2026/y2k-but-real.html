@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Y2K But Real | BKCTF 2026</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../../styles.css">
+</head>
+<body>
+
+<header>
+    <div class="container nav">
+        <a href="../../" class="logo">NULL<span>EXISTENCE</span></a>
+    </div>
+</header>
+
+<section class="section">
+    <div class="container">
+
+        <h2 class="ctf-title">Y2K But Real – LCG Crack Challenge</h2>
+
+        <p><strong>Category:</strong> Cryptography</p>
+        <p><strong>Author:</strong> Arveen (Neevra_Llig)</p>
+
+        <hr>
+
+        <h3>Analysis</h3>
+
+        <p>
+        The server uses an LCG with:
+        </p>
+
+        <ul>
+            <li>Modulus = p × q (product of two 16-bit primes = 32-bit number)</li>
+            <li>a, c = unknown parameters</li>
+            <li>We get 8 consecutive outputs, need to predict next 5</li>
+        </ul>
+
+        <hr>
+
+        <h3>Attack Strategy</h3>
+
+        <p>
+        Since the modulus is only ~32-bit (product of two 16-bit primes), we can recover it from
+        differences of LCG outputs using a GCD-based attack.
+        </p>
+
+        <p>
+        Given consecutive outputs:
+        </p>
+
+        <pre><code>
+s[i+1] = a*s[i] + c (mod m)
+        </code></pre>
+
+        <p>
+        Define differences:
+        </p>
+
+        <pre><code>
+t[i] = s[i+1] - s[i]
+        </code></pre>
+
+        <p>
+        A key identity holds:
+        </p>
+
+        <pre><code>
+t[i+2] * t[i] - t[i+1]^2 ≡ 0 (mod m)
+        </code></pre>
+
+        <p>
+        Therefore:
+        </p>
+
+        <pre><code>
+m | gcd(t[i+2]*t[i] - t[i+1]^2)
+        </code></pre>
+
+        <p>
+        Since m is a 32-bit semiprime (p·q), we compute the GCD of these values and then
+        find divisors in the range [2^30, 2^32] to identify the correct modulus.
+        </p>
+
+        <hr>
+
+        <h3>Recovering a and c</h3>
+
+        <p>
+        Once m is known:
+        </p>
+
+        <pre><code>
+(s2 - s1) ≡ a * (s1 - s0) (mod m)
+        </code></pre>
+
+        <p>
+        Solve for a using modular inverse, then compute:
+        </p>
+
+        <pre><code>
+c = (s1 - a*s0) mod m
+        </code></pre>
+
+        <hr>
+
+        <h3>Solve Script</h3>
+
+        <pre><code>
+#!/usr/bin/env python3
+"""
+Y2K But Real - CTF Solver
+Attack: LCG with 32-bit semiprime modulus is weak.
+Given 8 consecutive outputs, recover (a, c, m) and predict next 5.
+Math:
+ s[i+1] = a*s[i] + c (mod m)
+ t[i] = s[i+1] - s[i]
+ t[i+2]*t[i] - t[i+1]^2 ≡ 0 (mod m)
+ => m | gcd of all such expressions
+ => factor that gcd to find the 32-bit semiprime m
+ => then recover a, c via modular arithmetic
+"""
+import socket
+import ssl
+import re
+import math
+# ---------- Math helpers ----------
+def gcd(a, b):
+ while b:
+ a, b = b, a % b
+ return a
+def ext_gcd(a, b):
+ old_r, r = a, b
+ old_s, s = 1, 0
+ while r:
+ q = old_r // r
+ old_r, r = r, old_r - q * r
+ old_s, s = s, old_s - q * s
+ return old_r, old_s, (old_r - old_s * a) // b if b else 0
+def modinv(a, m):
+ g, x, _ = ext_gcd(a % m, m)
+ if g != 1:
+ return None
+ return x % m
+# ---------- LCG recovery ----------
+def recover_modulus_candidate(outputs):
+ """
+ t[i] = s[i+1] - s[i]
+ m divides t[i+2]*t[i] - t[i+1]^2
+ Take GCD over all such values.
+ """
+ t = [outputs[i + 1] - outputs[i] for i in range(len(outputs) - 1)]
+ val = 0
+ for i in range(len(t) - 2):
+ v = abs(t[i + 2] * t[i] - t[i + 1] ** 2)
+ if v:
+ val = gcd(val, v) if val else v
+ return val
+def all_divisors_in_range(n, lo, hi):
+ """Return all divisors of n in [lo, hi]."""
+ n = abs(n)
+ if n == 0:
+ return []
+ divs = set()
+ i = 1
+ while i * i <= n:
+ if n % i == 0:
+ if lo <= i <= hi:
+ divs.add(i)
+ j = n // i
+ if lo <= j <= hi:
+ divs.add(j)
+ i += 1
+ return sorted(divs)
+def find_modulus(outputs):
+ """Find the true semiprime modulus from the GCD candidate."""
+ raw = recover_modulus_candidate(outputs)
+ if not raw:
+ return []
+ # Modulus is p*q, two 16-bit primes → range [2^30, 2^32]
+ lo, hi = 1 << 30, (1 << 32) - 1
+ candidates = all_divisors_in_range(raw, lo, hi)
+ valid = []
+ for m in candidates:
+ diff1 = (outputs[1] - outputs[0]) % m
+ diff2 = (outputs[2] - outputs[1]) % m
+ if gcd(diff1, m) == gcd(diff2, gcd(diff1, m)): # divisibility check
+ if diff2 % gcd(diff1, m) == 0:
+ valid.append(m)
+ return valid
+def recover_a_c(outputs, m):
+ """
+ s1 = a*s0 + c (mod m)
+ s2 = a*s1 + c (mod m)
+ => (s2-s1) = a*(s1-s0) (mod m)
+ """
+ s0, s1, s2 = outputs[0], outputs[1], outputs[2]
+ diff1 = (s1 - s0) % m
+ diff2 = (s2 - s1) % m
+ g = gcd(diff1, m)
+ if diff2 % g != 0:
+ return []
+ # Solve: (diff1/g)*a ≡ (diff2/g) (mod m/g)
+ M = m // g
+ inv = modinv(diff1 // g, M)
+ if inv is None:
+ return []
+ a_base = (diff2 // g * inv) % M
+ results = []
+ for k in range(g):
+ a = a_base + k * M
+ c = (s1 - a * s0) % m
+ results.append((a, c))
+ return results
+def solve(outputs):
+ """Return 5 predicted next outputs, or None on failure."""
+ mods = find_modulus(outputs)
+ print(f"[*] Modulus candidates: {mods}")
+ for m in mods:
+ for a, c in recover_a_c(outputs, m):
+ # Verify full sequence
+ state = outputs[0]
+ ok = True
+ for expected in outputs[1:]:
+ state = (a * state + c) % m
+ if state != expected:
+ ok = False
+ break
+ if ok:
+ print(f"[+] Found LCG: m={m}, a={a}, c={c}")
+ preds = []
+ for _ in range(5):
+ state = (a * state + c) % m
+ preds.append(state)
+ return preds
+ return None
+# ---------- Network ----------
+def main():
+ host = "y2k-but-real-1e0a819ca0ecb2f0.instancer.batmans.kitchen"
+ port = 1337
+ ctx = ssl.create_default_context()
+ ctx.check_hostname = False
+ ctx.verify_mode = ssl.CERT_NONE
+ print(f"[*] Connecting to {host}:{port} ...")
+ with socket.create_connection((host, port), timeout=15) as raw:
+ with ctx.wrap_socket(raw, server_hostname=host) as s:
+ # Read until prompt
+ buf = b""
+ while b"> " not in buf:
+ buf += s.recv(4096)
+ print(buf.decode())
+ # Parse the 8 shown outputs
+ m = re.search(r'\[([0-9, ]+)\]', buf.decode())
+ if not m:
+ print("[-] Could not parse outputs!")
+ return
+ outputs = [int(x.strip()) for x in m.group(1).split(',')]
+ print(f"[*] Parsed outputs: {outputs}")
+ preds = solve(outputs)
+ if preds is None:
+ print("[-] Solve failed!")
+ return
+ print(f"[+] Predictions: {preds}")
+ answer = ','.join(map(str, preds)) + '\n'
+ s.sendall(answer.encode())
+ resp = s.recv(4096)
+ print(resp.decode())
+if __name__ == "__main__":
+ main()
+   
+        </code></pre>
+
+        <hr>
+
+        <h3>Flag</h3>
+
+        <p>
+        Unfortunately I did not save the flag, but the script successfully recovered
+        the correct predictions and revealed it.
+        </p>
+
+    </div>
+</section>
+
+</body>
+</html>

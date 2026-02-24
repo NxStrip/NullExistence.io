@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>I Love Lean | BKCTF 2026</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../../styles.css">
+</head>
+<body>
+
+<header>
+    <div class="container nav">
+        <a href="../../" class="logo">NULL<span>EXISTENCE</span></a>
+    </div>
+</header>
+
+<section class="section">
+<div class="container">
+
+<h2 class="ctf-title">I Love Lean – Cryptography Challenge</h2>
+
+<p><strong>Author:</strong> Arveen (Neevra_Llig)</p>
+<p><strong>Category:</strong> Cryptography / Formal Verification</p>
+
+<hr>
+
+<h3>Abstract</h3>
+<p>
+This writeup covers the process of solving the I love lean!! challenge,
+which required writing a formal proof in Lean 4 (with Mathlib) to verify
+the correctness of a memory-efficient modular exponentiation function.
+The server typechecks the submitted Lean file and returns the flag only
+if the proof is valid.
+</p>
+
+<hr>
+
+<h3>1. Challenge Description</h3>
+
+<p>
+The challenge presents a Lean 4 source file containing an implementation
+of modular exponentiation and asks the solver to complete a correctness proof.
+The server runs a Lean typechecker and returns the flag if the file compiles
+cleanly with no errors or warnings (warningAsError true is set).
+</p>
+
+<pre><code>
+set_option warningAsError true
+
+def mem_effecient_mod_exp (b e m c : Nat) : Nat :=
+ if e > 0 then
+  mem_effecient_mod_exp b (e - 1) m ((b * c) % m)
+ else
+  c % m
+
+theorem it_works (b e m : Nat) :
+ mem_effecient_mod_exp b e m 1 = (b ^ e) % m :=
+ &lt;YOUR CODE HERE&gt;
+</code></pre>
+
+<p>Server connection:</p>
+
+<pre><code>
+ncat --ssl i-love-lean-&lt;id&gt;.instancer.batmans.kitchen 1337
+</code></pre>
+
+<hr>
+
+<h3>2. Understanding the Function</h3>
+
+<p>
+The function recursively computes modular exponentiation using an accumulator c:
+</p>
+
+<ul>
+<li>If e &gt; 0: recurse with e - 1 and accumulator (b * c) % m</li>
+<li>If e = 0: return c % m</li>
+</ul>
+
+<p>
+When called with c = 1, it computes b^e % m.
+</p>
+
+<p>
+Direct induction fails because the inductive hypothesis is too weak —
+the recursive call modifies c.
+</p>
+
+<p>
+The key insight is to strengthen the inductive hypothesis:
+</p>
+
+<pre><code>
+mem_effecient_mod_exp b e m c = (b^e * c) % m
+</code></pre>
+
+The main theorem follows by substituting c = 1.
+
+<hr>
+
+<h3>3. Proof Strategy</h3>
+
+<h4>3.1 Helper Lemma (aux)</h4>
+
+<pre><code>
+have aux : ∀ e c,
+ mem_effecient_mod_exp b e m c = (b ^ e * c) % m
+</code></pre>
+
+<h4>3.2 Base Case (e = 0)</h4>
+
+<p>
+When e = 0:
+</p>
+
+<pre><code>
+mem_effecient_mod_exp b 0 m c = c % m
+b^0 * c % m = 1 * c % m = c % m
+</code></pre>
+
+Handled via simp.
+
+<h4>3.3 Inductive Step (e = n + 1)</h4>
+
+<p>
+Goal reduces to:
+</p>
+
+<pre><code>
+mem_effecient_mod_exp b n m ((b * c) % m)
+= b^(n+1) * c % m
+</code></pre>
+
+Using:
+
+- Nat.pow_succ
+- Nat.mul_assoc
+- Nat.mul_mod
+- Nat.mod_mod_of_dvd
+
+<hr>
+
+<h3>4. Iterative Development Notes</h3>
+
+<ul>
+<li>Nat.succ_gt_zero does not exist — use Nat.succ_pos</li>
+<li>Nat.mul_assoc must be explicitly namespaced</li>
+<li>warningAsError true breaks unused simp lemmas</li>
+<li>Proof must begin with <code>by</code></li>
+<li>aux must quantify over both e and c</li>
+</ul>
+
+<hr>
+
+<h3>5. Final Proof</h3>
+
+<pre><code>
+theorem it_works (b e m : Nat) :
+ mem_effecient_mod_exp b e m 1 = (b ^ e) % m := by
+ have aux : ∀ e c,
+  mem_effecient_mod_exp b e m c = (b ^ e * c) % m := by
+  intro e
+  induction e with
+  | zero =>
+   intro c
+   simp [mem_effecient_mod_exp]
+  | succ n ih =>
+   intro c
+   unfold mem_effecient_mod_exp
+   simp only [Nat.add_one_sub_one,
+    show n + 1 > 0 from Nat.succ_pos n, ↓reduceIte]
+   rw [ih, Nat.pow_succ, Nat.mul_assoc,
+    Nat.mul_mod (b ^ n), Nat.mod_mod_of_dvd, ← Nat.mul_mod]
+   · simp
+ simp [aux]
+</code></pre>
+
+<hr>
+
+<h3>6. Key Mathlib Lemmas</h3>
+
+<ul>
+<li><strong>Nat.succ_pos n</strong> — proves n + 1 &gt; 0</li>
+<li><strong>Nat.add_one_sub_one</strong> — simplifies (n + 1) - 1 = n</li>
+<li><strong>↓reduceIte</strong> — reduces if true then ... else ...</li>
+<li><strong>Nat.pow_succ</strong> — b^(n+1) = b^n * b</li>
+<li><strong>Nat.mul_assoc</strong> — reassociates multiplication</li>
+<li><strong>Nat.mul_mod</strong> — modular multiplication rule</li>
+<li><strong>Nat.mod_mod_of_dvd</strong> — simplifies nested modulo</li>
+</ul>
+
+<hr>
+
+<h3>7. Submission</h3>
+
+<p>
+The server reads input after := and typechecks the file.
+Type the proof starting with <code>by</code> and send two empty lines.
+</p>
+
+<pre><code>
+ncat --ssl i-love-lean-&lt;id&gt;.instancer.batmans.kitchen 1337
+</code></pre>
+
+<hr>
+
+<h3>Flag</h3>
+
+<pre><code>
+bkctf{pUrp13-Dr4nk-typ3Ch3k3s}
+</code></pre>
+
+</div>
+</section>
+
+</body>
+</html>

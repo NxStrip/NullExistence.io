@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Celestial Body | Crypto</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../../styles.css">
+</head>
+
+<body>
+
+    <header>
+        <div class="container nav">
+            <a href="../../" class="logo">NULL<span>EXISTENCE</span></a>
+        </div>
+    </header>
+
+    <section class="section">
+        <div class="container">
+
+            <h2 class="ctf-title">Celestial Body – Cryptography Challenge</h2>
+
+            <p><strong>Author:</strong> NxStrip</p>
+            <p><strong>Category:</strong> Crypto</p>
+            <p><strong>Objective:</strong> Decrypt a classified deep-space transmission encrypted with an AES key
+                derived from a Truncated Linear Congruential Generator (LCG).</p>
+
+            <hr>
+
+            <h3>1. Initial Reconnaissance &amp; The Red Herring</h3>
+
+            <p>
+                The provided transmission log includes multiple DSA signatures under the
+                <code>[TAP Authentication Signatures]</code> section.
+                Reviewing the encryption script reveals a glaring vulnerability in the TAP signing protocol: the DSA
+                nonce (<code>k_tap</code>)
+                is generated <em>outside</em> of the signing loop.
+            </p>
+
+            <p>
+                Because the exact same nonce is used for all five signatures, an attacker could easily recover the
+                private signing key
+                (<em>x_tap</em>) using standard DSA nonce reuse equations. However, this is a cleverly disguised red
+                herring.
+                The AES key used to encrypt the flag is completely independent of the TAP signing key.
+            </p>
+
+            <hr>
+
+            <h3>2. Cracking the Epoch Time</h3>
+
+            <p>
+                The LCG parameters multiplier (<em>a</em>) and increment (<em>b</em>) are deterministically generated
+                based on the exact
+                position of Halley's Comet at the time of transmission. We are given the date (2026-01-26) but not the
+                exact time.
+            </p>
+
+            <p>
+                However, the transmission log includes <code>epoch_hash = 8b156702c993b9b5</code>, which is the first 16
+                characters
+                of the SHA-256 hash of the <code>"HH:MM:SS"</code> string. Since there are only 86,400 seconds in a
+                24-hour period,
+                we can bruteforce the exact time:
+            </p>
+
+            <pre><code>import hashlib
+
+target_hash = "8b156702c993b9b5"
+for h in range(24):
+    for m in range(60):
+        for s in range(60):
+            t_str = f"{h:02d}:{m:02d}:{s:02d}"
+            if hashlib.sha256(t_str.encode()).hexdigest()[:16] == target_hash:
+                print(f"[*] Found Transmission Time: {t_str}")
+                exit()</code></pre>
+
+            <p><strong>Result:</strong> The transmission occurred at exactly <code>04:12:55</code>.</p>
+
+            <hr>
+
+            <h3>3. The Truncated LCG Exploit</h3>
+
+            <p>
+                With the exact time, we can run the challenge's <code>load_comet_and_derive</code> function to obtain
+                LCG parameters
+                <em>a</em> and <em>b</em>. The LCG has a 512-bit state, but the spacecraft only broadcasts the top 192
+                bits at
+                specific step intervals (steps 0, 4, 10, 18, and 28). This is a classic Hidden Number Problem solvable
+                via LLL lattice
+                basis reduction.
+            </p>
+
+            <h4>Modeling the Mathematics</h4>
+
+            <p>
+                We know the mathematical relationship between the initial state (<em>S</em><sub>0</sub>) and any future
+                state (<em>S</em><sub>k</sub>):
+            </p>
+
+            <pre><code>S_k ≡ A_k · S_0 + B_k  (mod p)
+
+Where:
+  A_k = a^k mod p
+  B_k = b · (a^k − 1) · (a − 1)^{−1} mod p</code></pre>
+
+            <p>
+                Each state <em>S</em> is composed of our known telemetry (<em>t</em>) shifted by 320 bits, plus the
+                unknown lower bits (<em>x</em>):
+            </p>
+
+            <pre><code>S_k = t_k · 2^320 + x_k</code></pre>
+
+            <p>
+                Substituting and rearranging to isolate the unknowns on one side gives:
+            </p>
+
+            <pre><code>x_k − A_k · x_0 ≡ K_k  (mod p)
+
+Where K_k = A_k · t_0 · 2^320 + B_k − t_k · 2^320  (all known values)</code></pre>
+
+            <h4>Lattice Construction</h4>
+
+            <p>
+                We construct a 6×6 matrix in SageMath to model these relations. The matrix enforces the modulo
+                <em>p</em> arithmetic
+                and applies the <em>A_k</em> multipliers. Running LLL on this lattice finds the shortest basis vectors,
+                and because the
+                unknown lower bits are strictly bounded by 2<sup>320</sup>, LLL successfully isolates them — recovering
+                the exact <em>x</em><sub>0</sub>.
+            </p>
+
+            <hr>
+
+            <h3>4. Final State Recovery &amp; Decryption</h3>
+
+            <p>
+                By adding the recovered <em>x</em><sub>0</sub> to the shifted telemetry <em>t</em><sub>0</sub>, we
+                perfectly reconstruct
+                the 512-bit initial state <em>S</em><sub>0</sub>. The challenge generates the AES key by advancing the
+                LCG exactly one
+                step past the final index 28 (to step 29). We fast-forward to step 29, hash the result with SHA-256, and
+                decrypt the
+                ciphertext using AES-CBC.
+            </p>
+
+            <hr>
+
+            <h3>5. Full Solve Script</h3>
+
+            <pre><code>from sage.all import *
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import unpad
+from Crypto.Util.number import long_to_bytes, bytes_to_long
+import hashlib
+import os
+from skyfield.api import load
+
+# --- 0. Ensure Comet Data Exists ---
+if not os.path.exists('CometEls.txt'):
+    print("[*] Downloading comet ephemerides...")
+    import urllib.request
+    urllib.request.urlretrieve(
+        "https://minorplanetcenter.net/iau/Ephemerides/Comets/Soft00Cmt.txt",
+        'CometEls.txt')
+
+# --- 1. Reconstruct the Missing Target Function ---
+def load_comet_and_derive(year, month, day, hour, minute, second):
+    from skyfield.data import mpc
+    from skyfield.constants import GM_SUN_Pitjeva_2005_km3_s2 as GM_SUN
+
+    with load.open('CometEls.txt') as f:
+        comets = mpc.load_comets_dataframe(f)
+
+    comets = comets.set_index('designation', drop=False)
+    row = comets.loc['1P/Halley']
+
+    ts = load.timescale()
+    t = ts.utc(year, month, day, hour, minute, second)
+
+    eph = load('de421.bsp')
+    sun = eph['sun']
+    halley = sun + mpc.comet_orbit(row, ts, GM_SUN)
+
+    astrometric = sun.at(t).observe(halley)
+    x, y, z = astrometric.position.au
+
+    coord_string = f"{x:.10f}_{y:.10f}_{z:.10f}"
+    h_a = hashlib.sha512((coord_string + "_A").encode()).digest()
+    h_b = hashlib.sha512((coord_string + "_B").encode()).digest()
+    return bytes_to_long(h_a), bytes_to_long(h_b)
+
+# --- 2. Target Data ---
+print("[*] Calculating LCG parameters a and b from Halley's trajectory...")
+a, b = load_comet_and_derive(2026, 1, 26, 4, 12, 55)
+
+p = 10035410270612815279389330410121900529620495869479898461384631211745452304638984576440553552006414411373806160282016417372459090604747980402493134112626213
+t = [
+    1129223615711367884405014640005288172041367198689786688285,
+    579514026315281536883405991880758556036404753274817543322,
+    1279648546218423539959079224022586160480305721841176089544,
+    1946366015289015629063708515503091199628321083313573104031,
+    3902208990133988884490762855871313599751888895643028675415
+]
+steps = [0, 4, 10, 18, 28]
+shift = 320
+
+# --- 3. Calculate Multipliers & Increments ---
+A = []
+B = []
+for k in steps[1:]:
+    A_k = power_mod(a, k, p)
+    B_k = (b * (A_k - 1) * inverse_mod(a - 1, p)) % p
+    A.append(A_k)
+    B.append(B_k)
+
+# --- 4. Build the Target Constants (K) ---
+K = []
+for i, j in enumerate(range(1, 5)):
+    k_val = (A[i] * (t[0] &lt;&lt; shift) + B[i] - (t[j] &lt;&lt; shift)) % p
+    K.append(k_val)
+
+# --- 5. Construct the Lattice Matrix ---
+dim = 6
+M = Matrix(ZZ, dim, dim)
+
+for i in range(4):
+    M[i, i] = p
+
+for i in range(4):
+    M[4, i] = A[i]
+M[4, 4] = 1
+
+for i in range(4):
+    M[5, i] = K[i]
+M[5, 5] = 1
+
+# --- 6. LLL Reduction ---
+print("[*] Running LLL reduction...")
+L = M.LLL()
+
+x0 = None
+for row in L:
+    if abs(row[5]) == 1:
+        x0 = abs(row[4])
+        break
+
+if x0 is None:
+    print("[-] LLL failed to find the target vector.")
+    exit()
+
+S0 = (t[0] &lt;&lt; shift) + x0
+print(f"[*] Recovered Initial State (S0): {S0}")
+
+# --- 7. Fast-Forward and Decrypt ---
+k_final = 29
+A_final = power_mod(a, k_final, p)
+B_final = (b * (A_final - 1) * inverse_mod(a - 1, p)) % p
+
+final_state = (A_final * S0 + B_final) % p
+print(f"[*] Recovered Final State: {final_state}")
+
+aes_key = hashlib.sha256(long_to_bytes(final_state)).digest()
+iv = bytes.fromhex("ba04a327ffd0c69205ff5dcb5f463d9c")
+ciphertext = bytes.fromhex("1879e4d0f174c9a6d2be99b6f632cc0f3ea89989e69dbd080761cb616b37d8eba37635de6c6475d741f69450c8259590")
+
+cipher = AES.new(aes_key, AES.MODE_CBC, iv)
+flag = unpad(cipher.decrypt(ciphertext), AES.block_size).decode()
+
+print(f"\n[+] FLAG: {flag}")</code></pre>
+
+            <hr>
+
+            <h3>Flag</h3>
+
+            <pre><code>UVT{0rb1t4l_c0ngru3nc3_m4k35_pr3d1ct4ble_k3y5}</code></pre>
+
+        </div>
+    </section>
+
+</body>
+
+</html>

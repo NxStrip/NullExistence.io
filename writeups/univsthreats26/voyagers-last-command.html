@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voyager's Last Command | Crypto</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../../styles.css">
+</head>
+
+<body>
+
+    <header>
+        <div class="container nav">
+            <a href="../../" class="logo">NULL<span>EXISTENCE</span></a>
+        </div>
+    </header>
+
+    <section class="section">
+        <div class="container">
+
+            <h2 class="ctf-title">Voyager's Last Command – Cryptography Challenge</h2>
+
+            <p><strong>Author:</strong> Arveen (Neevra_Llig) </p>
+            <p><strong>Category:</strong> Crypto</p>
+            <p><strong>Objective:</strong> Recover an ECDSA private key by exploiting a Linear Congruential Generator
+                nonce relationship across three signatures, then decrypt an AES-128-ECB ciphertext to retrieve the flag.
+            </p>
+
+            <hr>
+
+            <h3>Challenge Parameters</h3>
+
+            <pre><code>Curve:      secp256k1
+LCG a:      0xeb6e156c7697aa99a10601182fd2e61997c56a5b83ece3c0c5c1cd252750b896
+LCG b:      UNKNOWN (corrupted by cosmic-ray event)
+Public Key: Qx = 0x49436e4d6baa69485f815c802c512307e176d8981f71bd4f33e78a2dc3542634
+            Qy = 0x412fa154185556f28f00cf137bd6498904eb9076c48c583315c2c99d9b200e5d
+Cipher:     AES-128-ECB, key = SHA-256(d, big-endian)[:16]
+Oracle:     3 signatures permitted</code></pre>
+
+            <hr>
+
+            <h3>1. ECDSA &amp; LCG Background</h3>
+
+            <p>
+                In ECDSA, signing a message with hash <em>e</em> using private key <em>d</em> requires a random nonce
+                <em>k</em>. The signature pair (<em>r</em>, <em>s</em>) is computed as:
+            </p>
+
+            <pre><code>R = k·G  →  r = Rx mod n
+s = k⁻¹ · (e + d·r) mod n</code></pre>
+
+            <p>
+                Security depends entirely on <em>k</em> being unpredictable. Here, nonces are produced by an LCG:
+            </p>
+
+            <pre><code>k_{i+1} = a · k_i + b  (mod n)</code></pre>
+
+            <p>
+                Because <em>a</em> is known, three consecutive nonces satisfy a relationship that allows <em>b</em> to
+                be
+                eliminated entirely:
+            </p>
+
+            <pre><code>k₂ = a·k₁ + b  (mod n)
+k₃ = a·k₂ + b  (mod n)
+
+Subtracting:  k₃ − k₂ = a·(k₂ − k₁)  (mod n)
+Therefore:    k₃ = (a+1)·k₂ − a·k₁   (mod n)</code></pre>
+
+            <hr>
+
+            <h3>2. Collecting Three Signatures</h3>
+
+            <p>
+                We send three distinct messages to the oracle. It returns each signature along with
+                <em>z</em> (the SHA-256 hash of the message mod <em>n</em>):
+            </p>
+
+            <pre><code>// Message 1: 0x616161 ("aaa")
+r₁ = 0xb08da6d92439f99a7687522bdd0971baaca95e63ea25ff34ed4e8fd2b024fe1d
+s₁ = 0x3424447767d3bc07e4a13311780ce44ad324e93fbe71f74b0997fc33a2abc24b
+e₁ = 0x9834876dcfb05cb167a5c24953eba58c4ac89b1adf57f28f2f9d09af107ee8f0
+
+// Message 2: 0x626262 ("bbb")
+r₂ = 0x3b670a62d2bcba6bb99019778831b7b7e0b6086716585302f8a11590cc775962
+s₂ = 0xc683111693aab6abd89b09cf26365c5bee286f4ae2fc8a522f672c65907234ed
+e₂ = 0x3e744b9dc39389baf0c5a0660589b8402f3dbb49b89b3e75f2c9355852a3c677
+
+// Message 3: 0x636363 ("ccc")
+r₃ = 0x6bbd4e2bb9a7cea78957fbed9827458298d5b48f02cfb069d734e52ed72c42e
+s₃ = 0xc260859d2e1aafb3e9a7e173c74af3f78b4d8084ad596c18630fc0ce040b719d
+e₃ = 0x64daa44ad493ff28a96effab6e77f1732a3d97d83241581b37dbd70a7a4900fe</code></pre>
+
+            <hr>
+
+            <h3>3. Deriving a Linear Equation in <em>d</em></h3>
+
+            <p>
+                Each nonce can be expressed in terms of the private key using the ECDSA equation:
+            </p>
+
+            <pre><code>kᵢ = sᵢ⁻¹ · (eᵢ + d·rᵢ)  (mod n)
+
+Let xᵢ = sᵢ⁻¹ mod n
+Then: kᵢ = xᵢ·eᵢ + xᵢ·rᵢ·d  (mod n)</code></pre>
+
+            <p>
+                Substituting into the LCG relation k₃ = (a+1)·k₂ − a·k₁ and expanding:
+            </p>
+
+            <pre><code>x₃(e₃ + d·r₃) = (a+1)·x₂(e₂ + d·r₂) − a·x₁(e₁ + d·r₁)
+
+Collecting d terms:
+
+d · [x₃·r₃ − (a+1)·x₂·r₂ + a·x₁·r₁] = (a+1)·x₂·e₂ − a·x₁·e₁ − x₃·e₃
+
+Let:  A = x₃·r₃ − (a+1)·x₂·r₂ + a·x₁·r₁  (mod n)
+      B = (a+1)·x₂·e₂ − a·x₁·e₁ − x₃·e₃  (mod n)
+
+Then: d = B · A⁻¹  (mod n)</code></pre>
+
+            <p>
+                This is a single modular linear equation with one unknown — no lattice reduction, no brute force.
+            </p>
+
+            <hr>
+
+            <h3>4. Python Exploit</h3>
+
+            <pre><code>#!/usr/bin/env python3
+import hashlib
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.backends import default_backend
+
+n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+a = 0xeb6e156c7697aa99a10601182fd2e61997c56a5b83ece3c0c5c1cd252750b896
+
+r1,s1,e1 = 0xb08da6d92439f99a7687522bdd0971baaca95e63ea25ff34ed4e8fd2b024fe1d, \
+            0x3424447767d3bc07e4a13311780ce44ad324e93fbe71f74b0997fc33a2abc24b, \
+            0x9834876dcfb05cb167a5c24953eba58c4ac89b1adf57f28f2f9d09af107ee8f0
+
+r2,s2,e2 = 0x3b670a62d2bcba6bb99019778831b7b7e0b6086716585302f8a11590cc775962, \
+            0xc683111693aab6abd89b09cf26365c5bee286f4ae2fc8a522f672c65907234ed, \
+            0x3e744b9dc39389baf0c5a0660589b8402f3dbb49b89b3e75f2c9355852a3c677
+
+r3,s3,e3 = 0x6bbd4e2bb9a7cea78957fbed9827458298d5b48f02cfb069d734e52ed72c42e,  \
+            0xc260859d2e1aafb3e9a7e173c74af3f78b4d8084ad596c18630fc0ce040b719d, \
+            0x64daa44ad493ff28a96effab6e77f1732a3d97d83241581b37dbd70a7a4900fe
+
+ciphertext = bytes.fromhex(
+    "6464c3b1798b92c6831384a96e8e6f6b...3ef516d1fc848cf1"
+)
+
+modinv = lambda a, m: pow(a, m - 2, m)
+
+x1, x2, x3 = modinv(s1, n), modinv(s2, n), modinv(s3, n)
+
+A = (x3*r3 - (a+1)*x2*r2 + a*x1*r1) % n
+B = ((a+1)*x2*e2 - a*x1*e1 - x3*e3) % n
+d = B * modinv(A, n) % n
+
+key = hashlib.sha256(d.to_bytes(32, 'big')).digest()[:16]
+cipher = Cipher(algorithms.AES(key), modes.ECB(), backend=default_backend())
+pt = cipher.decryptor().update(ciphertext)
+print(pt.decode())</code></pre>
+
+            <hr>
+
+            <h3>5. Results</h3>
+
+            <pre><code>Private key d:  0xb4efef85dcd33d82a6b21d0a2ffa4186df31eb8bd8685d558878598857255d70
+Public key:     d·G = Q  ✓  (verified against given Qx, Qy)
+AES key:        SHA-256(d)[:16]</code></pre>
+
+            <hr>
+
+            <h3>Flag</h3>
+
+            <pre><code>UVT{v0y4g3r_s1gn3d_1t5_0wn_d34th}</code></pre>
+
+        </div>
+    </section>
+
+</body>
+
+</html>

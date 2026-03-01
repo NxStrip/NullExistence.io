@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Where Is Everything | Steganography</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../../styles.css">
+</head>
+
+<body>
+
+    <header>
+        <div class="container nav">
+            <a href="../../" class="logo">NULL<span>EXISTENCE</span></a>
+        </div>
+    </header>
+
+    <section class="section">
+        <div class="container">
+
+            <h2 class="ctf-title">Where Is Everything – Steganography Challenge</h2>
+
+            <p><strong>Author:</strong> Arveen (Neevra_Llig)</p>
+            <p><strong>Category:</strong> Steganography</p>
+            <p><strong>Objective:</strong> Uncover a hidden flag concealed across three seemingly empty files through
+                metadata analysis, steganography extraction, and password recovery.</p>
+
+            <hr>
+
+            <h3>Abstract</h3>
+
+            <p>
+                Presented with an HTTP 404 "Everything Not Found" and three files that appear blank or trivial,
+                participants are challenged to question surface-level assumptions. What appears empty may conceal
+                hidden structure, metadata, or unconventional data storage. This challenge tests attention to detail,
+                curiosity, and the ability to uncover what is deliberately obscured beneath the illusion of nothingness.
+            </p>
+
+            <hr>
+
+            <h3>1. Files Given</h3>
+
+            <pre><code>empty.png
+empty.txt
+empty.js</code></pre>
+
+            <hr>
+
+            <h3>2. Inspecting empty.js</h3>
+
+            <p>
+                Opening <code>empty.js</code> revealed two distinct parts. The first was a block of fake legal
+                instructions designed to mislead — a red herring. The second was actual JavaScript:
+            </p>
+
+            <pre><code>const DRIFT_LOG = {
+  title: "DEEP SKY SURVEY - DRIFT LOG",
+  lines: [
+    "Space looks empty until you measure what you can't see.",
+    "Some signals don't live in letters... they live between them.",
+    "If this file feels blank, that's the point.",
+    "We logged the anomaly as: \"the void is carrying data\".",
+  ],
+};
+
+const TRANSMISSION_SCRAP = "aHR0cHM6Ly9sZWVrc3Bpbi5jbw==";</code></pre>
+
+            <p>
+                Decoding the Base64 string in <code>TRANSMISSION_SCRAP</code> yielded either a troll or a thematic
+                distraction — it does not directly reveal the flag.
+            </p>
+
+            <hr>
+
+            <h3>3. Inspecting empty.png</h3>
+
+            <p>
+                Running <code>zsteg</code> against <code>empty.png</code> uncovered hidden data in the image metadata:
+            </p>
+
+            <pre><code>$ zsteg empty.png
+
+meta Comment .. text:
+"m2v9kq1/ax0n7uH3p9t5z1aA8w0e6yHk4n2u7sA1v3fJ9c0r5dU2b7m4sS6t1qT8x2n7pT0r6l
+1k+R9a4m7uO3p8c2yL5v0n4hL2j6s9dI7q1w3eN8z0p5uG=="</code></pre>
+
+            <p>
+                This led to the extraction of a file: <code>payload.zip</code>. Inside was a password-protected
+                <code>flag.png</code>.
+            </p>
+
+            <hr>
+
+            <h3>4. Cracking the Zip Password</h3>
+
+            <p>
+                With help from teammates NxStrip and 0xTak, the zip password was recovered. NxStrip pointed to
+                <a href="https://www.aperisolve.com/419cb286ece33dc3551ed50e5ff69a4f" target="_blank"
+                    rel="noopener">aperisolve.com</a>
+                where, after extracting <code>flag.png</code>, a string section at the bottom of the image contained the
+                flag.
+            </p>
+
+            <pre><code>$ python3 decode.py
+Whisper recovered: ZIP_PASSWORD=D4rKm47T3rrr;END[...]</code></pre>
+
+            <hr>
+
+            <h3>5. Extracting the Flag</h3>
+
+            <p>
+                With the zip unlocked, running <code>strings</code> and <code>zsteg</code> against <code>flag.png</code>
+                revealed the flag appended as extra data after the image end chunk (<code>IEND</code>):
+            </p>
+
+            <pre><code>$ strings flag.png
+IHDR
+IDATx
+r=Oo
+'lrY
+IEND
+UVT{N0th1nG_iS_3mp7y_1n_sP4c3}
+
+$ zsteg -a flag.png
+[?] 32 bytes of extra data after image end (IEND), offset = 0x2008
+extradata[0]  .. text: "\r\nUVT{N0th1nG_iS_3mp7y_1n_sP4c3}"</code></pre>
+
+            <p>
+                <em>Big thanks to NxStrip and 0xTak for their help finding the password.</em>
+            </p>
+
+            <hr>
+
+            <h3>Flag</h3>
+
+            <pre><code>UVT{N0th1nG_iS_3mp7y_1n_sP4c3}</code></pre>
+
+        </div>
+    </section>
+
+</body>
+
+</html>

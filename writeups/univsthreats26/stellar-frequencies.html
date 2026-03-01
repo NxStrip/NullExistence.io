@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stellar Frequencies | Forensics</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../../styles.css">
+</head>
+
+<body>
+
+    <header>
+        <div class="container nav">
+            <a href="../../" class="logo">NULL<span>EXISTENCE</span></a>
+        </div>
+    </header>
+
+    <section class="section">
+        <div class="container">
+
+            <h2 class="ctf-title">Stellar Frequencies – Spectrogram Challenge</h2>
+
+            <p><strong>Author:</strong> Arveen (Neevra_Llig)</p>
+            <p><strong>Category:</strong> Steganography </p>
+            <p><strong>Objective:</strong> Uncover a concealed message hidden within a layered radio transmission by
+                analysing its spectrogram.</p>
+
+            <hr>
+
+            <h3>Abstract</h3>
+
+            <p>
+                Stellar Frequencies presents a faint, high-frequency signal buried beneath a dominant carrier wave.
+                Solvers must examine frequency bands, filter noise, and reconstruct the masked transmission to
+                extract and decode a drifting cipher embedded beyond the limits of casual listening. The challenge
+                tests skills in signal processing, waveform analysis, and creative problem-solving.
+            </p>
+
+            <hr>
+
+            <h3>1. File Given</h3>
+
+            <p>
+                We were given a <code>.wav</code> file that produced a sound similar to beeping.
+            </p>
+
+            <hr>
+
+            <h3>2. Solution</h3>
+
+            <p>
+                The first step was to run the file through a <strong>DTMF Decoder</strong> to check for any encoded
+                tones — this returned nothing useful.
+            </p>
+
+            <p>
+                Given the nature of the file, the next logical step was to inspect it visually. Loading the
+                <code>.wav</code> into <strong>Sonic Visualiser</strong> and switching to the spectrogram view
+                immediately revealed the flag rendered directly in the frequency domain.
+            </p>
+
+            <hr>
+
+            <h3>Flag</h3>
+
+            <pre><code>UVT{5t4rsh1p_3ch03s_fr0m_th3_0ut3r_v01d}</code></pre>
+
+        </div>
+    </section>
+
+</body>
+
+</html>
